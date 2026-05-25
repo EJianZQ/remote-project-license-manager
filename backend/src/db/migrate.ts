@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS project_access_logs (
 
 CREATE INDEX IF NOT EXISTS project_access_logs_project_id_idx ON project_access_logs (project_id);
 CREATE INDEX IF NOT EXISTS project_access_logs_slug_idx ON project_access_logs (slug);
+CREATE INDEX IF NOT EXISTS project_access_logs_public_key_idx ON project_access_logs (public_key);
+CREATE INDEX IF NOT EXISTS project_access_logs_request_domain_idx ON project_access_logs (request_domain);
+CREATE INDEX IF NOT EXISTS project_access_logs_ip_idx ON project_access_logs (ip);
+CREATE INDEX IF NOT EXISTS project_access_logs_effective_status_idx ON project_access_logs (effective_status);
+CREATE INDEX IF NOT EXISTS project_access_logs_allowed_idx ON project_access_logs (allowed);
 CREATE INDEX IF NOT EXISTS project_access_logs_created_at_idx ON project_access_logs (created_at);
 
 CREATE TABLE IF NOT EXISTS admin_sessions (

@@ -1,10 +1,12 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import {
   errorResponse,
   formatZodError,
   handleRouteError,
   paginatedResponse
 } from "../../utils/response";
+import { normalizeDomain } from "../../utils/domain";
 import { requireAdmin } from "../auth/auth.middleware";
 import {
   paginationQuerySchema,
@@ -12,16 +14,75 @@ import {
   projectStatusSchema
 } from "../projects/project.validators";
 import { listAccessLogs, listActionLogs } from "./log.service";
-import { z } from "zod";
 
-const accessLogQuerySchema = paginationQuerySchema.extend({
+const isoDateTimeQuerySchema = z
+  .string()
+  .datetime({ offset: true })
+  .transform((value) => new Date(value).toISOString())
+  .optional();
+
+const exactQueryTextSchema = z.string().trim().min(1).max(253).optional();
+const fuzzyQueryTextSchema = z.string().trim().min(1).max(500).optional();
+
+const requestDomainQuerySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(253)
+  .transform((value) => normalizeDomain(value))
+  .refine((value): value is string => value !== null, {
+    message: "requestDomain 只能填写域名，不要带协议、端口或路径"
+  })
+  .optional();
+
+const baseAccessLogQuerySchema = paginationQuerySchema.extend({
+  projectId: z.coerce.number().int().positive().optional(),
   slug: z.string().trim().min(1).optional(),
+  publicKey: exactQueryTextSchema,
+  requestDomain: requestDomainQuerySchema,
+  ip: z.string().trim().min(1).max(128).optional(),
+  origin: fuzzyQueryTextSchema,
+  referer: fuzzyQueryTextSchema,
+  userAgent: fuzzyQueryTextSchema,
+  message: fuzzyQueryTextSchema,
   effectiveStatus: projectStatusSchema.optional(),
   allowed: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
-    .optional()
+    .optional(),
+  createdAtFrom: isoDateTimeQuerySchema,
+  createdAtTo: isoDateTimeQuerySchema
 });
+
+function validateAccessLogDateRange(
+  value: {
+    createdAtFrom?: string;
+    createdAtTo?: string;
+  },
+  context: z.RefinementCtx
+) {
+  if (
+    value.createdAtFrom &&
+    value.createdAtTo &&
+    value.createdAtFrom > value.createdAtTo
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["createdAtTo"],
+      message: "createdAtTo 必须晚于或等于 createdAtFrom"
+    });
+  }
+}
+
+const accessLogQuerySchema = baseAccessLogQuerySchema.superRefine(
+  validateAccessLogDateRange
+);
+
+const projectAccessLogQuerySchema = baseAccessLogQuerySchema
+  .omit({
+    projectId: true
+  })
+  .superRefine(validateAccessLogDateRange);
 
 const actionLogQuerySchema = paginationQuerySchema.extend({
   action: z.string().trim().min(1).optional(),
@@ -38,7 +99,7 @@ export async function logRoutes(app: FastifyInstance) {
       return errorResponse(reply, 400, formatZodError(parsedParams.error));
     }
 
-    const parsedQuery = paginationQuerySchema.safeParse(request.query);
+    const parsedQuery = projectAccessLogQuerySchema.safeParse(request.query);
     if (!parsedQuery.success) {
       return errorResponse(reply, 400, formatZodError(parsedQuery.error));
     }
@@ -48,8 +109,7 @@ export async function logRoutes(app: FastifyInstance) {
         reply,
         listAccessLogs({
           projectId: parsedParams.data.id,
-          page: parsedQuery.data.page,
-          pageSize: parsedQuery.data.pageSize
+          ...parsedQuery.data
         })
       );
     } catch (error) {

@@ -402,7 +402,7 @@ Query 参数：
 
 - 用途：查看某个项目的公开配置访问日志
 - 是否需要登录：是
-- Query 参数：`page`、`pageSize`
+- Query 参数：`page`、`pageSize`，并支持下方访问日志筛选参数中除 `projectId` 之外的字段
 
 响应示例：
 
@@ -438,7 +438,26 @@ Query 参数：
 
 - 用途：查看全部公开配置访问日志
 - 是否需要登录：是
-- Query 参数：`slug`、`effectiveStatus`、`allowed`、`page`、`pageSize`
+
+Query 参数：
+
+| 字段 | 类型 | 匹配方式 | 说明 |
+| --- | --- | --- | --- |
+| projectId | number | 精确 | 项目内部 ID |
+| slug | string | 精确 | 请求时记录的项目 slug |
+| publicKey | string | 精确 | 请求携带的 publicKey |
+| requestDomain | string | 精确 | 从 `Origin` 或 `Referer` 解析出的域名，会按域名规则归一化 |
+| ip | string | 精确 | 请求 IP |
+| origin | string | 模糊 | `Origin` 请求头 |
+| referer | string | 模糊 | `Referer` 请求头 |
+| userAgent | string | 模糊 | `User-Agent` 请求头 |
+| message | string | 模糊 | 访问结果或失败原因 |
+| effectiveStatus | string | 精确 | `active`、`grace`、`expired`、`suspended` |
+| allowed | boolean string | 精确 | `true` 或 `false` |
+| createdAtFrom | string | 范围 | ISO 8601 起始时间，包含边界 |
+| createdAtTo | string | 范围 | ISO 8601 结束时间，包含边界 |
+| page | number | - | 页码 |
+| pageSize | number | - | 每页数量，最大 100 |
 
 ### GET /api/admin/action-logs
 

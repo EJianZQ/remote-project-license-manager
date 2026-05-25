@@ -73,6 +73,15 @@ export const projectAccessLogs = sqliteTable(
   (table) => ({
     projectIdIdx: index("project_access_logs_project_id_idx").on(table.projectId),
     slugIdx: index("project_access_logs_slug_idx").on(table.slug),
+    publicKeyIdx: index("project_access_logs_public_key_idx").on(table.publicKey),
+    requestDomainIdx: index("project_access_logs_request_domain_idx").on(
+      table.requestDomain
+    ),
+    ipIdx: index("project_access_logs_ip_idx").on(table.ip),
+    effectiveStatusIdx: index("project_access_logs_effective_status_idx").on(
+      table.effectiveStatus
+    ),
+    allowedIdx: index("project_access_logs_allowed_idx").on(table.allowed),
     createdAtIdx: index("project_access_logs_created_at_idx").on(table.createdAt)
   })
 );

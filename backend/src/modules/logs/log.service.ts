@@ -1,4 +1,4 @@
-import { and, count, desc, eq, lt, SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, like, lt, lte, SQL } from "drizzle-orm";
 import { db } from "../../db";
 import {
   adminActionLogs,
@@ -92,10 +92,19 @@ export function recordProjectAccessLog(input: ProjectAccessLogInput): void {
 }
 
 type AccessLogFilters = {
+  projectId?: number;
   slug?: string;
+  publicKey?: string;
+  requestDomain?: string;
+  ip?: string;
+  origin?: string;
+  referer?: string;
+  userAgent?: string;
+  message?: string;
   effectiveStatus?: ProjectStatus;
   allowed?: boolean;
-  projectId?: number;
+  createdAtFrom?: string;
+  createdAtTo?: string;
   page: number;
   pageSize: number;
 };
@@ -112,6 +121,10 @@ function buildWhere(conditions: SQL[]): SQL | undefined {
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
+function contains(value: string): string {
+  return `%${value}%`;
+}
+
 export function listAccessLogs(
   filters: AccessLogFilters
 ): PaginationResult<Record<string, unknown>> {
@@ -123,11 +136,38 @@ export function listAccessLogs(
   if (filters.slug) {
     conditions.push(eq(projectAccessLogs.slug, filters.slug));
   }
+  if (filters.publicKey) {
+    conditions.push(eq(projectAccessLogs.publicKey, filters.publicKey));
+  }
+  if (filters.requestDomain) {
+    conditions.push(eq(projectAccessLogs.requestDomain, filters.requestDomain));
+  }
+  if (filters.ip) {
+    conditions.push(eq(projectAccessLogs.ip, filters.ip));
+  }
+  if (filters.origin) {
+    conditions.push(like(projectAccessLogs.origin, contains(filters.origin)));
+  }
+  if (filters.referer) {
+    conditions.push(like(projectAccessLogs.referer, contains(filters.referer)));
+  }
+  if (filters.userAgent) {
+    conditions.push(like(projectAccessLogs.userAgent, contains(filters.userAgent)));
+  }
+  if (filters.message) {
+    conditions.push(like(projectAccessLogs.message, contains(filters.message)));
+  }
   if (filters.effectiveStatus) {
     conditions.push(eq(projectAccessLogs.effectiveStatus, filters.effectiveStatus));
   }
   if (filters.allowed !== undefined) {
     conditions.push(eq(projectAccessLogs.allowed, filters.allowed));
+  }
+  if (filters.createdAtFrom) {
+    conditions.push(gte(projectAccessLogs.createdAt, filters.createdAtFrom));
+  }
+  if (filters.createdAtTo) {
+    conditions.push(lte(projectAccessLogs.createdAt, filters.createdAtTo));
   }
 
   const where = buildWhere(conditions);

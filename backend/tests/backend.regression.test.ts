@@ -642,6 +642,25 @@ test("admin and public API contract gaps stay covered", async (t) => {
   });
   assert.equal(refererResponse.statusCode, 200, refererResponse.body);
 
+  const refererLogsResponse = await app.inject({
+    method: "GET",
+    url:
+      `/api/admin/access-logs?projectId=${refererProject.id}` +
+      "&requestDomain=referer.example.com" +
+      `&referer=${encodeURIComponent("/some/page")}` +
+      "&allowed=true&pageSize=10",
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(refererLogsResponse.statusCode, 200, refererLogsResponse.body);
+  const refererLogs = parseBody<{
+    items: Array<Record<string, any>>;
+    total: number;
+  }>(refererLogsResponse).data;
+  assert.equal(refererLogs.total, 1);
+  assert.equal(refererLogs.items[0].referer, "https://referer.example.com/some/page");
+
   const missingKeyProject = await createProject(app, adminCookie, "missing-key");
   const missingKeyResponse = await app.inject({
     method: "GET",
@@ -666,6 +685,69 @@ test("admin and public API contract gaps stay covered", async (t) => {
     projectLogs.items.map((item) => item.allowed).sort(),
     [false, true]
   );
+
+  const deniedProjectLogsResponse = await app.inject({
+    method: "GET",
+    url: `/api/admin/projects/${domainProject.id}/access-logs?allowed=false&requestDomain=sub.app.example.com&pageSize=10`,
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(deniedProjectLogsResponse.statusCode, 200, deniedProjectLogsResponse.body);
+  const deniedProjectLogs = parseBody<{
+    items: Array<Record<string, any>>;
+    total: number;
+  }>(deniedProjectLogsResponse).data;
+  assert.equal(deniedProjectLogs.total, 1);
+  assert.equal(deniedProjectLogs.items[0].requestDomain, "sub.app.example.com");
+  assert.equal(deniedProjectLogs.items[0].allowed, false);
+
+  const domainSuccessLog = projectLogs.items.find((item) => item.allowed === true);
+  assert.ok(domainSuccessLog);
+  assert.equal(domainSuccessLog.ip, "127.0.0.1");
+
+  const createdAtFrom = new Date(Date.now() - 60 * 1000).toISOString();
+  const createdAtTo = new Date(Date.now() + 60 * 1000).toISOString();
+  const detailedFilterUrl =
+    `/api/admin/access-logs?projectId=${domainProject.id}` +
+    `&publicKey=${encodeURIComponent(updatedProject.publicKey)}` +
+    "&requestDomain=APP.EXAMPLE.COM." +
+    `&ip=${encodeURIComponent(domainSuccessLog.ip)}` +
+    `&origin=${encodeURIComponent("https://app.example.com")}` +
+    `&userAgent=${encodeURIComponent("contract-test")}` +
+    `&message=${encodeURIComponent("宽限期")}` +
+    "&effectiveStatus=grace" +
+    "&allowed=true" +
+    `&createdAtFrom=${encodeURIComponent(createdAtFrom)}` +
+    `&createdAtTo=${encodeURIComponent(createdAtTo)}` +
+    "&pageSize=10";
+  const detailedFilterResponse = await app.inject({
+    method: "GET",
+    url: detailedFilterUrl,
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(detailedFilterResponse.statusCode, 200, detailedFilterResponse.body);
+  const detailedFilterLogs = parseBody<{
+    items: Array<Record<string, any>>;
+    total: number;
+  }>(detailedFilterResponse).data;
+  assert.equal(detailedFilterLogs.total, 1);
+  assert.equal(detailedFilterLogs.items[0].slug, "domain-renamed");
+  assert.equal(detailedFilterLogs.items[0].effectiveStatus, "grace");
+
+  const invalidDateRangeResponse = await app.inject({
+    method: "GET",
+    url:
+      "/api/admin/access-logs" +
+      `?createdAtFrom=${encodeURIComponent(createdAtTo)}` +
+      `&createdAtTo=${encodeURIComponent(createdAtFrom)}`,
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(invalidDateRangeResponse.statusCode, 400, invalidDateRangeResponse.body);
 
   const deniedLogsResponse = await app.inject({
     method: "GET",
