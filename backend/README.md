@@ -1,10 +1,12 @@
-# 前端项目授权与交付状态管理系统后端
+# Backend
 
-这是“前端项目授权与交付状态管理系统”的第一阶段后端服务。它用于合法、透明、可审计地管理商业前端项目的授权状态、演示期、宽限期、到期提醒、远程变量和访问日志。
+[English](./README.md) | [中文](./README_CN.md)
 
-本系统只提供远程配置、授权状态、弹窗提醒、自定义变量下发、访问日志记录和管理员操作日志，不包含隐蔽后门、远程命令执行、删库、加密客户数据或破坏客户业务的能力。
+The backend is the Fastify service behind Remote Project License Manager. It stores project license records in SQLite, exposes authenticated admin APIs, serves the public project configuration endpoint, records access and admin-operation logs, and optionally caches public project records in Redis.
 
-## 技术栈
+It is designed for transparent license status and delivery-state management. It returns status, popup settings, remote variables, and messages; it does not execute remote code or provide destructive controls.
+
+## Tech Stack
 
 - Node.js
 - TypeScript
@@ -20,57 +22,63 @@
 - Redis
 - dotenv
 
-## 目录结构
+## Directory Structure
 
 ```text
 backend/
   src/
-    index.ts                       # 服务启动入口
-    app.ts                         # 创建 Fastify app、注册插件和路由
-    env.ts                         # 环境变量读取与校验
+    index.ts                       # Server bootstrap
+    app.ts                         # Fastify app, plugins, routes, health check
+    env.ts                         # Environment loading and validation
     db/
-      index.ts                     # SQLite / Drizzle 连接
-      schema.ts                    # Drizzle 数据库表定义
-      migrate.ts                   # 初始化数据库表和索引
+      index.ts                     # SQLite and Drizzle connection
+      schema.ts                    # Table definitions and types
+      migrate.ts                   # Database table/index initialization
     modules/
-      auth/                        # 管理员登录、退出、登录态校验
-      projects/                    # 项目 CRUD、publicKey 重置、状态计算
-      public/                      # 商业前端项目公开配置接口
-      logs/                        # 访问日志和管理员操作日志
-    utils/                         # 响应、JSON、时间、域名、随机 key 等工具
+      auth/                        # Admin login, logout, session validation
+      projects/                    # Project CRUD, key regeneration, status calculation
+      public/                      # Public project configuration API and cache integration
+      logs/                        # Public access logs and admin action logs
+    utils/                         # Response, JSON, time, domain, and random helpers
+  tests/
+    backend.regression.test.ts     # Regression tests for core backend behavior
 ```
 
-## 安装依赖
+## Installation
 
 ```bash
 npm install
 ```
 
-## 配置环境变量
+## Environment Variables
+
+Create a local environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-环境变量说明：
+Available settings:
 
-- `ADMIN_USERNAME`：管理员登录用户名，默认 `admin`
-- `ADMIN_PASSWORD`：管理员登录密码，使用环境变量明文保存
-- `SESSION_SECRET`：用于签名 httpOnly cookie 的长随机字符串，生产环境必须修改
-- `DATABASE_URL`：SQLite 数据库位置，例如 `file:./data/app.db`
-- `SERVER_PORT`：后端监听端口，默认 `3001`
-- `NODE_ENV`：运行环境，支持 `development`、`test`、`production`
-- `PUBLIC_BASE_URL`：后端公开访问地址，用于文档和后续扩展
-- `CORS_ORIGIN`：允许管理后台跨域访问的来源，多个来源可用逗号分隔
-- `ADMIN_SESSION_TTL_SECONDS`：管理员登录态有效期，默认 `28800` 秒
-- `PUBLIC_CONFIG_RATE_LIMIT_MAX`：公开配置接口在时间窗口内允许的最大请求数，默认 `120`
-- `PUBLIC_CONFIG_RATE_LIMIT_WINDOW_SECONDS`：公开配置接口限流时间窗口，默认 `60` 秒
-- `ACCESS_LOG_RETENTION_DAYS`：公开配置访问日志保留天数，默认 `90` 天
-- `REDIS_URL`：Redis 连接地址，留空则禁用公开配置缓存，例如 `redis://127.0.0.1:6379`
-- `PUBLIC_CONFIG_CACHE_TTL_SECONDS`：公开配置项目记录缓存时间，默认 `120` 秒
-- `REDIS_COMMAND_TIMEOUT_MS`：Redis 命令超时时间，默认 `500` 毫秒
+| Variable | Description |
+| --- | --- |
+| `ADMIN_USERNAME` | Admin login username. Defaults to `admin`. |
+| `ADMIN_PASSWORD` | Admin login password. Change this before deployment. |
+| `SESSION_SECRET` | Secret used to sign httpOnly cookies. Must be at least 32 characters. |
+| `DATABASE_URL` | SQLite database location, for example `file:./data/app.db`. |
+| `SERVER_PORT` | Backend port. Defaults to `3001`. |
+| `NODE_ENV` | `development`, `test`, or `production`. |
+| `PUBLIC_BASE_URL` | Public backend base URL used in examples and future integrations. |
+| `CORS_ORIGIN` | Allowed admin-console origins. Use commas for multiple origins. |
+| `ADMIN_SESSION_TTL_SECONDS` | Admin session lifetime. Defaults to 8 hours. |
+| `PUBLIC_CONFIG_RATE_LIMIT_MAX` | Max public-config requests per window. |
+| `PUBLIC_CONFIG_RATE_LIMIT_WINDOW_SECONDS` | Public-config rate-limit window in seconds. |
+| `ACCESS_LOG_RETENTION_DAYS` | Retention period for public access logs. |
+| `REDIS_URL` | Optional Redis URL. Leave empty to disable Redis caching. |
+| `PUBLIC_CONFIG_CACHE_TTL_SECONDS` | Redis cache TTL for public project records. |
+| `REDIS_COMMAND_TIMEOUT_MS` | Redis command timeout in milliseconds. |
 
-生产环境域名示例：
+Production-style placeholders:
 
 ```bash
 PUBLIC_BASE_URL=https://api.example.com
@@ -78,57 +86,114 @@ CORS_ORIGIN=https://admin.example.com
 REDIS_URL=redis://127.0.0.1:6379
 ```
 
-## 初始化数据库
+## Database
+
+Initialize the SQLite schema:
 
 ```bash
 npm run db:migrate
 ```
 
-该命令会创建 `projects`、`project_access_logs`、`admin_sessions`、`admin_action_logs` 四张表和必要索引。
+The migration script creates:
 
-## 开发环境启动
+- `projects`
+- `project_access_logs`
+- `admin_sessions`
+- `admin_action_logs`
+
+The project table stores business-facing license configuration. The log tables make public access and administrative changes auditable.
+
+## Development
 
 ```bash
 npm run dev
 ```
 
-## 生产构建
+The development server watches `src/index.ts` through `tsx`.
+
+## Build and Run
 
 ```bash
 npm run build
-```
-
-## 生产启动
-
-```bash
 npm run start
 ```
 
-## Redis 缓存
+The compiled output is written to `dist/`.
 
-后端可以使用 Redis 缓存公开配置接口读取的项目记录。缓存只作为性能优化，不改变接口响应结构、状态计算、域名校验或访问日志记录。Redis 不可用、命令超时或缓存内容异常时，后端会自动回退 SQLite。
+## Tests
 
-管理后台创建、修改、删除项目或重新生成 `publicKey` 后，会主动失效对应项目缓存。建议生产环境 Redis 仅监听本机或内网，不要直接开放公网 `6379` 端口。
+```bash
+npm run test
+```
 
-## 接口文档位置
+The regression test suite covers important backend behavior around authentication, project management, public configuration responses, domain validation, and logging.
 
-- 管理后台接口文档：`../shared/admin-api.md`
-- 商业前端项目公开授权接口文档：`../shared/public-license-api.md`
+## API Surface
 
-## 状态说明
+### Health
 
-- `active`：项目正常，公开接口返回 `variables`，弹窗按项目配置返回。
-- `grace`：项目处于宽限期，公开接口仍返回 `variables`，通常用于提醒尾款或交付事项。
-- `expired`：项目已到期，公开接口不返回业务变量，返回到期提示。
-- `suspended`：项目已暂停，公开接口不返回业务变量，返回暂停提示。
+```text
+GET /health
+```
 
-接口返回时会额外计算 `effectiveStatus`：
+### Admin APIs
 
-- `enabled=false` 时一定表现为 `suspended`
-- `status=suspended` 时一定表现为 `suspended`
-- 未暂停但 `expiresAt` 早于服务器当前时间时表现为 `expired`
-- 未到期时，`active` 和 `grace` 按数据库状态返回
+Admin routes are mounted under:
 
-## 合规使用建议
+```text
+/api/admin
+```
 
-请在合同、聊天记录或交付说明中明确告知客户：项目会请求授权配置接口，用于授权状态、到期提醒、宽限期提醒和服务暂停提醒。不要将本系统用于破坏客户数据、破坏客户服务器、采集终端用户隐私或任何隐蔽控制行为。
+Main groups:
+
+- `/api/admin/auth/*` for login, current user, and logout.
+- `/api/admin/projects/*` for project CRUD and `publicKey` regeneration.
+- `/api/admin/access-logs` for public configuration access logs.
+- `/api/admin/action-logs` for administrator operation logs.
+
+See [../shared/admin-api.md](../shared/admin-api.md) for detailed request and response examples.
+
+### Public API
+
+Commercial frontend projects call:
+
+```text
+GET /api/public/projects/:slug/config?key=publicKey
+```
+
+The response includes:
+
+- `status`
+- `enabled`
+- `expiresAt`
+- `popup`
+- `variables`
+- `message`
+- `serverTime`
+
+See [../shared/public-license-api.md](../shared/public-license-api.md) for response examples and integration guidance.
+
+## Status Calculation
+
+- `enabled=false` always produces `suspended`.
+- `status=suspended` always produces `suspended`.
+- A project with an `expiresAt` earlier than the current server time produces `expired`.
+- `active` and `grace` are returned as configured when the project is enabled and not expired.
+
+Only `active` and `grace` responses include configured `variables`. `expired` and `suspended` responses return an empty object for `variables`.
+
+## Redis Cache
+
+Redis is optional. When `REDIS_URL` is set, the backend caches public project records to reduce database reads. Cache failures, timeouts, or invalid cache content automatically fall back to SQLite.
+
+Project creation, updates, deletion, and `publicKey` regeneration invalidate or refresh the related cache record. Redis should be bound to localhost or a private network in production.
+
+## Security and Operational Notes
+
+- Change `ADMIN_PASSWORD` and `SESSION_SECRET` before production use.
+- Keep `SESSION_SECRET` private and at least 32 characters long.
+- Use HTTPS in production.
+- Restrict `CORS_ORIGIN` to the deployed admin console origin.
+- Treat `publicKey` as a public project access key, not a high-security secret.
+- Use `allowedDomains` to reduce accidental or unauthorized public-config reads.
+- Keep `backend/.env`, `backend/data/`, logs, and build output out of Git.

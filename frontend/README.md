@@ -1,80 +1,170 @@
-# frontend
+# Frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+[English](./README.md) | [中文](./README_CN.md)
 
-## Recommended IDE Setup
+The frontend is the Vue 3 admin console for Remote Project License Manager. It gives administrators a browser-based interface for signing in, managing commercial frontend projects, editing license status and remote variables, configuring popup notices, generating integration examples, and reviewing access and action logs.
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## Tech Stack
 
-## Recommended Browser Setup
+- Vue 3
+- Vite
+- TypeScript
+- Vue Router
+- Pinia
+- Vue I18n
+- Naive UI
+- Lucide Vue icons
+- Axios
+- CodeMirror JSON editor
+- Vitest
+- ESLint and Oxlint
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+## Features
 
-## Type Support for `.vue` Imports in TS
+- Admin login flow backed by httpOnly cookie sessions.
+- Dashboard with total project count and recently updated projects.
+- Project list with search, status filters, enabled-state filters, pagination, and responsive table behavior.
+- Project create/edit forms for status, expiration time, popup settings, variables, domain restrictions, and remarks.
+- JSON editor for remote variables with validation, formatting, compacting, and examples.
+- Domain editor that rejects protocols, ports, paths, and invalid characters.
+- Project detail page with public API endpoint, `fetch` example, and agent integration prompt.
+- `publicKey` copy and regeneration actions.
+- Popup preview for `info`, `warning`, and `danger` levels.
+- Access log and admin action log pages.
+- Built-in Simplified Chinese, Traditional Chinese, and English UI messages.
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+## Directory Structure
 
-## Customize configuration
+```text
+frontend/
+  src/
+    api/                         # Axios client and typed API wrappers
+    components/
+      common/                    # Shared UI components
+      layout/                    # Admin shell and top bar
+      project/                   # Project form, JSON editor, domain editor, popup preview
+    config/                      # Runtime environment normalization
+    i18n/                        # Locale messages and i18n setup
+    layouts/                     # Auth and admin layouts
+    pages/                       # Login, dashboard, projects, logs, not found
+    router/                      # Route definitions and auth guards
+    stores/                      # Pinia stores
+    styles/                      # Base and theme CSS
+    tests/                       # Unit tests
+    utils/                       # Formatting, clipboard, domain, access prompt helpers
+```
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+## Installation
 
-## Project Setup
-
-```sh
+```bash
 npm install
 ```
 
 ## Environment Variables
 
-Create an `.env.local` file for local overrides when needed:
+Create a local override file:
 
-```sh
+```bash
+cp .env.example .env.local
+```
+
+The frontend reads:
+
+| Variable | Description |
+| --- | --- |
+| `VITE_APP_ORIGIN` | Admin console origin. Used when generating deployment-aware examples. |
+| `VITE_API_BASE_URL` | Backend API base URL. Also used to generate public configuration URLs. |
+
+Local defaults:
+
+```text
 VITE_APP_ORIGIN=http://localhost:5173
 VITE_API_BASE_URL=http://localhost:3001
 ```
 
-- `VITE_APP_ORIGIN`: frontend admin console domain.
-- `VITE_API_BASE_URL`: backend API base URL. It also controls the public config URL generated in project access examples.
+Production-style placeholders:
 
-Development defaults are set in `.env.development`:
-
-```sh
-VITE_APP_ORIGIN=http://localhost:5173
-VITE_API_BASE_URL=http://localhost:3001
-```
-
-Production defaults are set in `.env.production`:
-
-```sh
+```text
 VITE_APP_ORIGIN=https://admin.example.com
 VITE_API_BASE_URL=https://api.example.com
 ```
 
-### Compile and Hot-Reload for Development
+## Development
 
-```sh
+```bash
 npm run dev
 ```
 
-### Type-Check, Compile and Minify for Production
+Default Vite URL:
 
-```sh
+```text
+http://localhost:5173
+```
+
+Make sure the backend is running and that `CORS_ORIGIN` includes the frontend origin.
+
+## Build
+
+```bash
 npm run build
 ```
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+The production build runs type checking and writes static assets to `dist/`.
 
-```sh
+## Preview
+
+```bash
+npm run preview
+```
+
+## Tests
+
+```bash
 npm run test:unit
 ```
 
-### Lint with [ESLint](https://eslint.org/)
+Coverage:
 
-```sh
+```bash
+npm run test:coverage
+```
+
+## Linting
+
+```bash
 npm run lint
 ```
+
+This runs both Oxlint and ESLint with auto-fix enabled.
+
+## Routes
+
+| Route | Purpose |
+| --- | --- |
+| `/login` | Admin sign-in page. |
+| `/dashboard` | Project overview and quick actions. |
+| `/projects` | Project list, filters, actions, and access modal. |
+| `/projects/create` | Create a new project. |
+| `/projects/:id` | Project details, variables, allowed domains, access examples, recent logs. |
+| `/projects/:id/edit` | Edit an existing project. |
+| `/access-logs` | Review public configuration access logs. |
+| `/action-logs` | Review administrator operation logs. |
+
+Route guards call the backend `/api/admin/auth/me` endpoint during initialization and redirect unauthenticated users to `/login`.
+
+## Public Integration Tools
+
+The project detail page generates:
+
+- A public configuration API URL.
+- A minimal `fetch` example.
+- A longer agent prompt for integrating the public configuration endpoint into another frontend project.
+
+Those helpers live in `src/utils/accessInfo.ts`. The generated guidance emphasizes safe integration: request once on startup, store status and variables centrally, do not execute code from variables, and only block rendering for an explicit `suspended` status.
+
+## Notes
+
+- Keep real deployment URLs in local `.env.local`, `.env.development`, or `.env.production` files; do not commit them.
+- The admin API uses cookies, so requests are sent with `withCredentials: true`.
+- Public project integration URLs use `VITE_API_BASE_URL`.
+- `publicKey` is displayed for administrators and can be regenerated from the project list or project detail flow.
