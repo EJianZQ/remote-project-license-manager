@@ -1,5 +1,16 @@
 import { request } from './http'
-import type { AccessLog, AccessLogParams, ActionLogParams, AdminActionLog, PageResponse, ProjectAccessLogParams } from './types'
+import type {
+  AccessLog,
+  AccessLogParams,
+  AccessLogStatsParams,
+  ActionLogParams,
+  AdminActionLog,
+  DailyAccessLogStatsParams,
+  DailyAccessLogStats,
+  PageResponse,
+  ProjectAccessLogParams,
+  TodayAccessLogStats,
+} from './types'
 
 type AccessLogQueryValue = number | string
 type AccessLogQuery = Record<string, AccessLogQueryValue>
@@ -15,6 +26,17 @@ const textFilterKeys = [
   'message',
   'createdAtFrom',
   'createdAtTo',
+] as const
+
+const statsTextFilterKeys = [
+  'slug',
+  'publicKey',
+  'requestDomain',
+  'ip',
+  'origin',
+  'referer',
+  'userAgent',
+  'message',
 ] as const
 
 function addTrimmedParam(query: AccessLogQuery, key: string, value: number | string | undefined) {
@@ -61,6 +83,27 @@ function normalizeAccessLogParams(params: AccessLogParams, options: { omitProjec
   return query
 }
 
+function normalizeAccessLogStatsParams(params: AccessLogStatsParams) {
+  const query: AccessLogQuery = {}
+
+  addTrimmedParam(query, 'timezone', params.timezone)
+  addTrimmedParam(query, 'projectId', params.projectId)
+
+  for (const key of statsTextFilterKeys) {
+    addTrimmedParam(query, key, params[key])
+  }
+
+  if (params.effectiveStatus) {
+    query.effectiveStatus = params.effectiveStatus
+  }
+
+  if (params.allowed !== undefined) {
+    query.allowed = typeof params.allowed === 'boolean' ? String(params.allowed) : params.allowed
+  }
+
+  return query
+}
+
 export function getProjectAccessLogs(
   projectId: number | string,
   params: ProjectAccessLogParams = {},
@@ -77,6 +120,27 @@ export function getAccessLogs(params: AccessLogParams = {}) {
     url: '/api/admin/access-logs',
     method: 'GET',
     params: normalizeAccessLogParams(params),
+  })
+}
+
+export function getTodayAccessLogStats(params: AccessLogStatsParams) {
+  return request<TodayAccessLogStats>({
+    url: '/api/admin/access-logs/stats/today',
+    method: 'GET',
+    params: normalizeAccessLogStatsParams(params),
+  })
+}
+
+export function getDailyAccessLogStats(params: DailyAccessLogStatsParams) {
+  const query = normalizeAccessLogStatsParams(params)
+  if (params.days !== undefined) {
+    query.days = params.days
+  }
+
+  return request<DailyAccessLogStats>({
+    url: '/api/admin/access-logs/stats/daily',
+    method: 'GET',
+    params: query,
   })
 }
 

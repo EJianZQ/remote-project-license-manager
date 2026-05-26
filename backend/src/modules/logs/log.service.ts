@@ -1,4 +1,14 @@
-import { and, count, desc, eq, gte, like, lt, lte, SQL } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  like,
+  lt,
+  lte,
+  SQL
+} from "drizzle-orm";
 import { db } from "../../db";
 import {
   adminActionLogs,
@@ -91,7 +101,7 @@ export function recordProjectAccessLog(input: ProjectAccessLogInput): void {
     .run();
 }
 
-type AccessLogFilters = {
+type AccessLogFilterCriteria = {
   projectId?: number;
   slug?: string;
   publicKey?: string;
@@ -105,9 +115,17 @@ type AccessLogFilters = {
   allowed?: boolean;
   createdAtFrom?: string;
   createdAtTo?: string;
+};
+
+type AccessLogFilters = AccessLogFilterCriteria & {
   page: number;
   pageSize: number;
 };
+
+type AccessLogStatsFilters = Omit<
+  AccessLogFilterCriteria,
+  "createdAtFrom" | "createdAtTo"
+>;
 
 type ActionLogFilters = {
   action?: string;
@@ -117,6 +135,24 @@ type ActionLogFilters = {
   pageSize: number;
 };
 
+type StatusCounts = Record<ProjectStatus | "unknown", number>;
+
+type AccessLogStatsBucket = {
+  date: string;
+  total: number;
+  allowed: number;
+  denied: number;
+  statuses: StatusCounts;
+};
+
+type AccessLogStatsRow = {
+  effectiveStatus: ProjectStatus | null;
+  allowed: boolean;
+  total: number;
+};
+
+const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>();
+
 function buildWhere(conditions: SQL[]): SQL | undefined {
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
@@ -125,9 +161,9 @@ function contains(value: string): string {
   return `%${value}%`;
 }
 
-export function listAccessLogs(
-  filters: AccessLogFilters
-): PaginationResult<Record<string, unknown>> {
+function buildAccessLogFilterConditions(
+  filters: AccessLogFilterCriteria
+): SQL[] {
   const conditions: SQL[] = [];
 
   if (filters.projectId !== undefined) {
@@ -170,6 +206,194 @@ export function listAccessLogs(
     conditions.push(lte(projectAccessLogs.createdAt, filters.createdAtTo));
   }
 
+  return conditions;
+}
+
+function createStatusCounts(): StatusCounts {
+  return {
+    active: 0,
+    grace: 0,
+    expired: 0,
+    suspended: 0,
+    unknown: 0
+  };
+}
+
+function createStatsBucket(date: string): AccessLogStatsBucket {
+  return {
+    date,
+    total: 0,
+    allowed: 0,
+    denied: 0,
+    statuses: createStatusCounts()
+  };
+}
+
+function getTimeZoneFormatter(timezone: string): Intl.DateTimeFormat {
+  const cached = timeZoneFormatters.get(timezone);
+  if (cached) {
+    return cached;
+  }
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  });
+
+  timeZoneFormatters.set(timezone, formatter);
+  return formatter;
+}
+
+function getTimeZoneParts(date: Date, timezone: string) {
+  const values = Object.fromEntries(
+    getTimeZoneFormatter(timezone)
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)])
+  ) as Record<string, number>;
+
+  return {
+    year: values.year,
+    month: values.month,
+    day: values.day,
+    hour: values.hour,
+    minute: values.minute,
+    second: values.second
+  };
+}
+
+function formatLocalDate(year: number, month: number, day: number): string {
+  return `${year.toString().padStart(4, "0")}-${month
+    .toString()
+    .padStart(2, "0")}-${day.toString().padStart(2, "0")}`;
+}
+
+function getLocalDateString(date: Date, timezone: string): string {
+  const parts = getTimeZoneParts(date, timezone);
+  return formatLocalDate(parts.year, parts.month, parts.day);
+}
+
+function parseLocalDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return { year, month, day };
+}
+
+function addLocalDays(value: string, days: number): string {
+  const { year, month, day } = parseLocalDate(value);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+
+  return formatLocalDate(
+    date.getUTCFullYear(),
+    date.getUTCMonth() + 1,
+    date.getUTCDate()
+  );
+}
+
+function getTimeZoneOffsetMs(date: Date, timezone: string): number {
+  const parts = getTimeZoneParts(date, timezone);
+  const localAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second
+  );
+
+  return localAsUtc - date.getTime();
+}
+
+function localDateStartToUtc(value: string, timezone: string): Date {
+  const { year, month, day } = parseLocalDate(value);
+  const localAsUtc = Date.UTC(year, month - 1, day, 0, 0, 0);
+  let utc = localAsUtc;
+
+  for (let index = 0; index < 3; index += 1) {
+    const offset = getTimeZoneOffsetMs(new Date(utc), timezone);
+    const nextUtc = localAsUtc - offset;
+
+    if (Math.abs(nextUtc - utc) < 1000) {
+      utc = nextUtc;
+      break;
+    }
+
+    utc = nextUtc;
+  }
+
+  return new Date(utc);
+}
+
+function getLocalDayBoundsUtc(date: string, timezone: string) {
+  return {
+    start: localDateStartToUtc(date, timezone).toISOString(),
+    end: localDateStartToUtc(addLocalDays(date, 1), timezone).toISOString()
+  };
+}
+
+function getRecentLocalDates(days: number, timezone: string): string[] {
+  const today = getLocalDateString(new Date(), timezone);
+  const start = addLocalDays(today, -(days - 1));
+
+  return Array.from({ length: days }, (_item, index) =>
+    addLocalDays(start, index)
+  );
+}
+
+function applyStatsRows(
+  bucket: AccessLogStatsBucket,
+  rows: AccessLogStatsRow[]
+): AccessLogStatsBucket {
+  for (const row of rows) {
+    const total = Number(row.total);
+    const status = row.effectiveStatus ?? "unknown";
+
+    bucket.total += total;
+    if (row.allowed) {
+      bucket.allowed += total;
+    } else {
+      bucket.denied += total;
+    }
+
+    bucket.statuses[status] += total;
+  }
+
+  return bucket;
+}
+
+function summarizeAccessLogsBetween(
+  filters: AccessLogStatsFilters,
+  date: string,
+  start: string,
+  end: string
+): AccessLogStatsBucket {
+  const conditions = buildAccessLogFilterConditions(filters);
+  conditions.push(gte(projectAccessLogs.createdAt, start));
+  conditions.push(lt(projectAccessLogs.createdAt, end));
+
+  const rows = db
+    .select({
+      effectiveStatus: projectAccessLogs.effectiveStatus,
+      allowed: projectAccessLogs.allowed,
+      total: count()
+    })
+    .from(projectAccessLogs)
+    .where(buildWhere(conditions))
+    .groupBy(projectAccessLogs.effectiveStatus, projectAccessLogs.allowed)
+    .all() as AccessLogStatsRow[];
+
+  return applyStatsRows(createStatsBucket(date), rows);
+}
+
+export function listAccessLogs(
+  filters: AccessLogFilters
+): PaginationResult<Record<string, unknown>> {
+  const conditions = buildAccessLogFilterConditions(filters);
   const where = buildWhere(conditions);
   const countRow = db
     .select({ total: count() })
@@ -191,6 +415,41 @@ export function listAccessLogs(
     total: countRow?.total ?? 0,
     page: filters.page,
     pageSize: filters.pageSize
+  };
+}
+
+export function getTodayAccessLogStats(
+  input: AccessLogStatsFilters & { timezone: string }
+) {
+  const date = getLocalDateString(new Date(), input.timezone);
+  const bounds = getLocalDayBoundsUtc(date, input.timezone);
+  const stats = summarizeAccessLogsBetween(input, date, bounds.start, bounds.end);
+
+  return {
+    date: stats.date,
+    timezone: input.timezone,
+    total: stats.total,
+    allowed: stats.allowed,
+    denied: stats.denied,
+    statuses: stats.statuses
+  };
+}
+
+export function listDailyAccessLogStats(
+  input: AccessLogStatsFilters & { days: number; timezone: string }
+) {
+  const dates = getRecentLocalDates(input.days, input.timezone);
+  const items = dates.map((date) => {
+    const bounds = getLocalDayBoundsUtc(date, input.timezone);
+    return summarizeAccessLogsBetween(input, date, bounds.start, bounds.end);
+  });
+
+  return {
+    timezone: input.timezone,
+    days: input.days,
+    fromDate: dates[0],
+    toDate: dates[dates.length - 1],
+    items
   };
 }
 

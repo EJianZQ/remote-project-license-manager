@@ -4,7 +4,8 @@ import {
   errorResponse,
   formatZodError,
   handleRouteError,
-  paginatedResponse
+  paginatedResponse,
+  successResponse
 } from "../../utils/response";
 import { normalizeDomain } from "../../utils/domain";
 import { requireAdmin } from "../auth/auth.middleware";
@@ -13,7 +14,12 @@ import {
   projectIdParamsSchema,
   projectStatusSchema
 } from "../projects/project.validators";
-import { listAccessLogs, listActionLogs } from "./log.service";
+import {
+  getTodayAccessLogStats,
+  listAccessLogs,
+  listActionLogs,
+  listDailyAccessLogStats
+} from "./log.service";
 
 const isoDateTimeQuerySchema = z
   .string()
@@ -35,7 +41,16 @@ const requestDomainQuerySchema = z
   })
   .optional();
 
-const baseAccessLogQuerySchema = paginationQuerySchema.extend({
+function isValidTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const accessLogFilterFields = {
   projectId: z.coerce.number().int().positive().optional(),
   slug: z.string().trim().min(1).optional(),
   publicKey: exactQueryTextSchema,
@@ -49,10 +64,36 @@ const baseAccessLogQuerySchema = paginationQuerySchema.extend({
   allowed: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
-    .optional(),
+    .optional()
+};
+
+const baseAccessLogQuerySchema = paginationQuerySchema.extend({
+  ...accessLogFilterFields,
   createdAtFrom: isoDateTimeQuerySchema,
   createdAtTo: isoDateTimeQuerySchema
 });
+
+const accessLogStatsBaseQuerySchema = z
+  .object({
+    ...accessLogFilterFields,
+    timezone: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .refine(isValidTimeZone, {
+        message: "timezone 必须是有效的 IANA 时区"
+      })
+  })
+  .strict();
+
+const todayAccessLogStatsQuerySchema = accessLogStatsBaseQuerySchema;
+
+const dailyAccessLogStatsQuerySchema = accessLogStatsBaseQuerySchema
+  .extend({
+    days: z.coerce.number().int().min(1).max(90).default(7)
+  })
+  .strict();
 
 function validateAccessLogDateRange(
   value: {
@@ -92,6 +133,32 @@ const actionLogQuerySchema = paginationQuerySchema.extend({
 
 export async function logRoutes(app: FastifyInstance) {
   app.addHook("preHandler", requireAdmin);
+
+  app.get("/access-logs/stats/today", async (request, reply) => {
+    const parsedQuery = todayAccessLogStatsQuerySchema.safeParse(request.query);
+    if (!parsedQuery.success) {
+      return errorResponse(reply, 400, formatZodError(parsedQuery.error));
+    }
+
+    try {
+      return successResponse(reply, getTodayAccessLogStats(parsedQuery.data));
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
+
+  app.get("/access-logs/stats/daily", async (request, reply) => {
+    const parsedQuery = dailyAccessLogStatsQuerySchema.safeParse(request.query);
+    if (!parsedQuery.success) {
+      return errorResponse(reply, 400, formatZodError(parsedQuery.error));
+    }
+
+    try {
+      return successResponse(reply, listDailyAccessLogStats(parsedQuery.data));
+    } catch (error) {
+      return handleRouteError(reply, error);
+    }
+  });
 
   app.get("/projects/:id/access-logs", async (request, reply) => {
     const parsedParams = projectIdParamsSchema.safeParse(request.params);

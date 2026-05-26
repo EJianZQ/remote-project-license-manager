@@ -459,6 +459,104 @@ Query 参数：
 | page | number | - | 页码 |
 | pageSize | number | - | 每页数量，最大 100 |
 
+### GET /api/admin/access-logs/stats/today
+
+- 用途：统计指定时区当天的公开配置访问日志数量
+- 是否需要登录：是
+- 时间口径：按 `timezone` 指定的 IANA 时区切分自然日，后端转换成 UTC 半开区间查询
+
+Query 参数：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| timezone | string | 是 | IANA 时区，例如 `Asia/Shanghai` |
+| projectId | number | 否 | 项目内部 ID，精确匹配 |
+| slug | string | 否 | 请求时记录的项目 slug，精确匹配 |
+| publicKey | string | 否 | 请求携带的 publicKey，精确匹配 |
+| requestDomain | string | 否 | 请求域名，按域名规则归一化后精确匹配 |
+| ip | string | 否 | 请求 IP，精确匹配 |
+| origin | string | 否 | `Origin` 请求头，模糊匹配 |
+| referer | string | 否 | `Referer` 请求头，模糊匹配 |
+| userAgent | string | 否 | `User-Agent` 请求头，模糊匹配 |
+| message | string | 否 | 访问结果或失败原因，模糊匹配 |
+| effectiveStatus | string | 否 | `active`、`grace`、`expired`、`suspended` |
+| allowed | boolean string | 否 | `true` 或 `false` |
+
+响应示例：
+
+```json
+{
+  "success": true,
+  "data": {
+    "date": "2026-05-26",
+    "timezone": "Asia/Shanghai",
+    "total": 12,
+    "allowed": 9,
+    "denied": 3,
+    "statuses": {
+      "active": 7,
+      "grace": 1,
+      "expired": 1,
+      "suspended": 0,
+      "unknown": 3
+    }
+  }
+}
+```
+
+### GET /api/admin/access-logs/stats/daily
+
+- 用途：统计指定时区最近 N 天每天的公开配置访问日志数量，适合前端折线图
+- 是否需要登录：是
+- 时间口径：返回从旧到新的连续日期，没访问的日期补 `0`
+
+Query 参数：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| timezone | string | 是 | IANA 时区，例如 `Asia/Shanghai` |
+| days | number | 否 | 最近天数，默认 `7`，范围 `1-90` |
+| projectId | number | 否 | 项目内部 ID，精确匹配 |
+| slug | string | 否 | 请求时记录的项目 slug，精确匹配 |
+| publicKey | string | 否 | 请求携带的 publicKey，精确匹配 |
+| requestDomain | string | 否 | 请求域名，按域名规则归一化后精确匹配 |
+| ip | string | 否 | 请求 IP，精确匹配 |
+| origin | string | 否 | `Origin` 请求头，模糊匹配 |
+| referer | string | 否 | `Referer` 请求头，模糊匹配 |
+| userAgent | string | 否 | `User-Agent` 请求头，模糊匹配 |
+| message | string | 否 | 访问结果或失败原因，模糊匹配 |
+| effectiveStatus | string | 否 | `active`、`grace`、`expired`、`suspended` |
+| allowed | boolean string | 否 | `true` 或 `false` |
+
+响应示例：
+
+```json
+{
+  "success": true,
+  "data": {
+    "timezone": "Asia/Shanghai",
+    "days": 7,
+    "fromDate": "2026-05-20",
+    "toDate": "2026-05-26",
+    "items": [
+      {
+        "date": "2026-05-20",
+        "total": 0,
+        "allowed": 0,
+        "denied": 0,
+        "statuses": {
+          "active": 0,
+          "grace": 0,
+          "expired": 0,
+          "suspended": 0,
+          "unknown": 0
+        }
+      }
+    ]
+  }
+}
+```
+
 ### GET /api/admin/action-logs
 
 - 用途：查看管理员操作日志

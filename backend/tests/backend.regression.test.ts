@@ -184,6 +184,80 @@ function countRows(sql: string, ...params: unknown[]): number {
   return row.count;
 }
 
+type TestAccessLogInput = {
+  projectId?: number | null;
+  slug: string;
+  publicKey?: string | null;
+  requestDomain?: string | null;
+  origin?: string | null;
+  referer?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  effectiveStatus?: string | null;
+  allowed: boolean;
+  message?: string | null;
+  createdAt: string;
+};
+
+function insertAccessLog(input: TestAccessLogInput): void {
+  sqlite
+    .prepare(
+      `INSERT INTO project_access_logs
+       (
+         project_id,
+         slug,
+         public_key,
+         request_domain,
+         origin,
+         referer,
+         ip,
+         user_agent,
+         effective_status,
+         allowed,
+         message,
+         created_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      input.projectId ?? null,
+      input.slug,
+      input.publicKey ?? null,
+      input.requestDomain ?? null,
+      input.origin ?? null,
+      input.referer ?? null,
+      input.ip ?? null,
+      input.userAgent ?? null,
+      input.effectiveStatus ?? null,
+      input.allowed ? 1 : 0,
+      input.message ?? null,
+      input.createdAt
+    );
+}
+
+function getLocalDateForTimeZone(value: string, timezone: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    })
+      .formatToParts(new Date(value))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  ) as Record<string, string>;
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getDailyStatItem(
+  items: Array<{ date: string; total: number }>,
+  date: string
+) {
+  return items.find((item) => item.date === date);
+}
+
 test("backend security and behavior regressions stay fixed", async (t) => {
   const appModule = await import("../src/app");
   const dbModule = await import("../src/db");
@@ -815,6 +889,246 @@ test("admin and public API contract gaps stay covered", async (t) => {
   assert.equal(regenerateLogs.total, 1);
   assert.equal(regenerateLogs.items[0].before.publicKey, keyProject.publicKey);
   assert.equal(regenerateLogs.items[0].after.publicKey, regenerated.publicKey);
+});
+
+test("access log statistics are grouped by requested timezone and filters", async (t) => {
+  const app = await createFreshApp(t);
+  const adminCookie = await login(app);
+  const project = await createProject(app, adminCookie, "stats-project");
+  const otherProject = await createProject(app, adminCookie, "stats-other-project");
+  const timezoneProject = await createProject(app, adminCookie, "stats-timezone");
+
+  const nowIso = new Date().toISOString();
+  const oldIso = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const splitBase = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const splitIso = `${splitBase}T16:30:00.000Z`;
+  const shanghaiSplitDate = getLocalDateForTimeZone(splitIso, "Asia/Shanghai");
+  const newYorkSplitDate = getLocalDateForTimeZone(splitIso, "America/New_York");
+  assert.notEqual(shanghaiSplitDate, newYorkSplitDate);
+
+  insertAccessLog({
+    projectId: project.id,
+    slug: project.slug,
+    publicKey: project.publicKey,
+    requestDomain: "chart.example.com",
+    origin: "https://chart.example.com/app",
+    referer: "https://chart.example.com/app/home",
+    ip: "203.0.113.10",
+    userAgent: "StatsBrowser/1.0",
+    effectiveStatus: "active",
+    allowed: true,
+    message: "stats active ok",
+    createdAt: nowIso
+  });
+  insertAccessLog({
+    projectId: project.id,
+    slug: project.slug,
+    publicKey: project.publicKey,
+    requestDomain: "chart.example.com",
+    origin: "https://chart.example.com/app",
+    referer: "https://chart.example.com/app/grace",
+    ip: "203.0.113.10",
+    userAgent: "StatsBrowser/1.0",
+    effectiveStatus: "grace",
+    allowed: true,
+    message: "stats grace ok",
+    createdAt: nowIso
+  });
+  insertAccessLog({
+    projectId: project.id,
+    slug: project.slug,
+    publicKey: "wrong-key",
+    requestDomain: "denied.example.com",
+    origin: "https://denied.example.com",
+    referer: "https://denied.example.com/login",
+    ip: "203.0.113.11",
+    userAgent: "DeniedBrowser/1.0",
+    effectiveStatus: null,
+    allowed: false,
+    message: "项目不存在或授权校验失败",
+    createdAt: nowIso
+  });
+  insertAccessLog({
+    projectId: project.id,
+    slug: project.slug,
+    publicKey: project.publicKey,
+    requestDomain: "chart.example.com",
+    ip: "203.0.113.12",
+    userAgent: "StatsBrowser/2.0",
+    effectiveStatus: "suspended",
+    allowed: false,
+    message: "old suspended",
+    createdAt: oldIso
+  });
+  insertAccessLog({
+    projectId: otherProject.id,
+    slug: otherProject.slug,
+    publicKey: otherProject.publicKey,
+    requestDomain: "other.example.com",
+    ip: "203.0.113.99",
+    effectiveStatus: "expired",
+    allowed: true,
+    message: "other project",
+    createdAt: nowIso
+  });
+  insertAccessLog({
+    projectId: timezoneProject.id,
+    slug: timezoneProject.slug,
+    publicKey: timezoneProject.publicKey,
+    requestDomain: "timezone.example.com",
+    ip: "198.51.100.8",
+    effectiveStatus: "active",
+    allowed: true,
+    message: "timezone split",
+    createdAt: splitIso
+  });
+
+  const todayResponse = await app.inject({
+    method: "GET",
+    url:
+      `/api/admin/access-logs/stats/today?timezone=Asia%2FShanghai` +
+      `&projectId=${project.id}`,
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(todayResponse.statusCode, 200, todayResponse.body);
+  const todayStats = parseBody<Record<string, any>>(todayResponse).data;
+  assert.equal(todayStats.timezone, "Asia/Shanghai");
+  assert.equal(todayStats.date, getLocalDateForTimeZone(nowIso, "Asia/Shanghai"));
+  assert.equal(todayStats.total, 3);
+  assert.equal(todayStats.allowed, 2);
+  assert.equal(todayStats.denied, 1);
+  assert.deepEqual(todayStats.statuses, {
+    active: 1,
+    grace: 1,
+    expired: 0,
+    suspended: 0,
+    unknown: 1
+  });
+
+  const filteredStatsResponse = await app.inject({
+    method: "GET",
+    url:
+      "/api/admin/access-logs/stats/today?timezone=Asia%2FShanghai" +
+      `&projectId=${project.id}` +
+      "&slug=stats-project" +
+      "&publicKey=" +
+      encodeURIComponent(project.publicKey) +
+      "&requestDomain=chart.example.com" +
+      "&ip=203.0.113.10" +
+      "&origin=chart.example.com" +
+      "&referer=home" +
+      "&userAgent=StatsBrowser" +
+      "&message=active" +
+      "&effectiveStatus=active" +
+      "&allowed=true",
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(filteredStatsResponse.statusCode, 200, filteredStatsResponse.body);
+  const filteredStats = parseBody<Record<string, any>>(filteredStatsResponse).data;
+  assert.equal(filteredStats.total, 1);
+  assert.equal(filteredStats.allowed, 1);
+  assert.equal(filteredStats.statuses.active, 1);
+
+  const dailyResponse = await app.inject({
+    method: "GET",
+    url:
+      `/api/admin/access-logs/stats/daily?timezone=Asia%2FShanghai&days=3` +
+      `&projectId=${project.id}`,
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(dailyResponse.statusCode, 200, dailyResponse.body);
+  const dailyStats = parseBody<{
+    timezone: string;
+    days: number;
+    fromDate: string;
+    toDate: string;
+    items: Array<Record<string, any>>;
+  }>(dailyResponse).data;
+  assert.equal(dailyStats.timezone, "Asia/Shanghai");
+  assert.equal(dailyStats.days, 3);
+  assert.equal(dailyStats.items.length, 3);
+  assert.equal(dailyStats.fromDate, dailyStats.items[0].date);
+  assert.equal(dailyStats.toDate, dailyStats.items[2].date);
+  assert.ok(dailyStats.items.some((item) => item.total === 0));
+  assert.equal(
+    dailyStats.items.reduce((sum, item) => sum + item.total, 0),
+    4
+  );
+  const oldDate = getLocalDateForTimeZone(oldIso, "Asia/Shanghai");
+  const oldStats = getDailyStatItem(
+    dailyStats.items as Array<{ date: string; total: number }>,
+    oldDate
+  );
+  assert.ok(oldStats);
+  assert.equal(oldStats.total, 1);
+
+  const shanghaiDailyResponse = await app.inject({
+    method: "GET",
+    url:
+      "/api/admin/access-logs/stats/daily?timezone=Asia%2FShanghai&days=4" +
+      `&slug=${timezoneProject.slug}`,
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  const newYorkDailyResponse = await app.inject({
+    method: "GET",
+    url:
+      "/api/admin/access-logs/stats/daily?timezone=America%2FNew_York&days=4" +
+      `&slug=${timezoneProject.slug}`,
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(shanghaiDailyResponse.statusCode, 200, shanghaiDailyResponse.body);
+  assert.equal(newYorkDailyResponse.statusCode, 200, newYorkDailyResponse.body);
+  const shanghaiItems = parseBody<{
+    items: Array<{ date: string; total: number }>;
+  }>(shanghaiDailyResponse).data.items;
+  const newYorkItems = parseBody<{
+    items: Array<{ date: string; total: number }>;
+  }>(newYorkDailyResponse).data.items;
+  assert.equal(getDailyStatItem(shanghaiItems, shanghaiSplitDate)?.total, 1);
+  assert.equal(getDailyStatItem(newYorkItems, newYorkSplitDate)?.total, 1);
+  assert.equal(getDailyStatItem(shanghaiItems, newYorkSplitDate)?.total ?? 0, 0);
+  assert.equal(getDailyStatItem(newYorkItems, shanghaiSplitDate)?.total ?? 0, 0);
+
+  const invalidTimezoneResponse = await app.inject({
+    method: "GET",
+    url: "/api/admin/access-logs/stats/today?timezone=Not/AZone",
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(invalidTimezoneResponse.statusCode, 400, invalidTimezoneResponse.body);
+
+  const invalidDaysResponse = await app.inject({
+    method: "GET",
+    url: "/api/admin/access-logs/stats/daily?timezone=Asia%2FShanghai&days=0",
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(invalidDaysResponse.statusCode, 400, invalidDaysResponse.body);
+
+  const unsupportedRangeResponse = await app.inject({
+    method: "GET",
+    url:
+      "/api/admin/access-logs/stats/today?timezone=Asia%2FShanghai" +
+      "&createdAtFrom=2026-05-25T00%3A00%3A00%2B08%3A00",
+    headers: {
+      cookie: adminCookie
+    }
+  });
+  assert.equal(unsupportedRangeResponse.statusCode, 400, unsupportedRangeResponse.body);
 });
 
 test("public project config cache is optional, invalidated, and fault tolerant", async (t) => {

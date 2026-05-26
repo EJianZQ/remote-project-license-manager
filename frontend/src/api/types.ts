@@ -108,6 +108,52 @@ export interface AccessLogParams {
 
 export type ProjectAccessLogParams = Omit<AccessLogParams, 'projectId'>
 
+export type AccessLogStatusCounts = Record<ProjectStatus | 'unknown', number>
+
+export interface AccessLogStatsParams {
+  timezone: string
+  projectId?: number | string
+  slug?: string
+  publicKey?: string
+  requestDomain?: string
+  ip?: string
+  origin?: string
+  referer?: string
+  userAgent?: string
+  message?: string
+  effectiveStatus?: ProjectStatus
+  allowed?: AccessLogAllowedParam
+}
+
+export interface DailyAccessLogStatsParams extends AccessLogStatsParams {
+  days?: number
+}
+
+export interface TodayAccessLogStats {
+  date: string
+  timezone: string
+  total: number
+  allowed: number
+  denied: number
+  statuses: AccessLogStatusCounts
+}
+
+export interface DailyAccessLogStatsItem {
+  date: string
+  total: number
+  allowed: number
+  denied: number
+  statuses: AccessLogStatusCounts
+}
+
+export interface DailyAccessLogStats {
+  timezone: string
+  days: number
+  fromDate: string
+  toDate: string
+  items: DailyAccessLogStatsItem[]
+}
+
 export interface AdminActionLog {
   id: number
   action: string

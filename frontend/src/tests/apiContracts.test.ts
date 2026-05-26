@@ -16,7 +16,7 @@ import {
   regenerateProjectKey,
   updateProject,
 } from '@/api/projects'
-import { getAccessLogs, getActionLogs, getProjectAccessLogs } from '@/api/logs'
+import { getAccessLogs, getActionLogs, getDailyAccessLogStats, getProjectAccessLogs, getTodayAccessLogStats } from '@/api/logs'
 
 const projectPayload: ProjectPayload = {
   name: '酒店预定',
@@ -195,6 +195,57 @@ describe('log API contracts', () => {
       url: '/api/admin/action-logs',
       method: 'GET',
       params: { action: 'create_project', targetType: 'project', targetId: 12, page: 1, pageSize: 20 },
+    })
+  })
+
+  it('calls access log statistics endpoints with timezone and filters', async () => {
+    await getTodayAccessLogStats({
+      timezone: ' Asia/Shanghai ',
+      projectId: ' 12 ',
+      slug: ' jdyd ',
+      publicKey: ' public-key ',
+      requestDomain: ' example.com ',
+      ip: ' 127.0.0.1 ',
+      origin: 'https://example.com',
+      referer: '',
+      userAgent: ' Chrome ',
+      message: ' 宽限期 ',
+      effectiveStatus: 'grace',
+      allowed: false,
+    })
+
+    expect(requestMock).toHaveBeenLastCalledWith({
+      url: '/api/admin/access-logs/stats/today',
+      method: 'GET',
+      params: {
+        timezone: 'Asia/Shanghai',
+        projectId: '12',
+        slug: 'jdyd',
+        publicKey: 'public-key',
+        requestDomain: 'example.com',
+        ip: '127.0.0.1',
+        origin: 'https://example.com',
+        userAgent: 'Chrome',
+        message: '宽限期',
+        effectiveStatus: 'grace',
+        allowed: 'false',
+      },
+    })
+
+    await getDailyAccessLogStats({
+      timezone: 'Asia/Shanghai',
+      days: 14,
+      allowed: true,
+    })
+
+    expect(requestMock).toHaveBeenLastCalledWith({
+      url: '/api/admin/access-logs/stats/daily',
+      method: 'GET',
+      params: {
+        timezone: 'Asia/Shanghai',
+        days: 14,
+        allowed: 'true',
+      },
     })
   })
 })
