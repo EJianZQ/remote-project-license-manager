@@ -110,22 +110,84 @@ describe('project API contracts', () => {
 })
 
 describe('log API contracts', () => {
-  it('calls project-scoped access log endpoint with pagination only', async () => {
-    await getProjectAccessLogs(12, { page: 1, pageSize: 10 })
+  it('calls project-scoped access log endpoint with filters but without projectId', async () => {
+    const projectScopedParams = {
+      projectId: 99,
+      slug: ' jdyd ',
+      publicKey: ' public-key ',
+      requestDomain: ' example.com ',
+      ip: ' 127.0.0.1 ',
+      origin: '',
+      referer: ' /checkout ',
+      userAgent: ' Chrome ',
+      message: ' 宽限期 ',
+      effectiveStatus: 'grace' as const,
+      allowed: false,
+      createdAtFrom: ' 2026-05-25T10:30:00+08:00 ',
+      createdAtTo: '2026-05-25T11:30:00+08:00',
+      page: 1,
+      pageSize: 10,
+    }
+
+    await getProjectAccessLogs(12, projectScopedParams)
 
     expect(requestMock).toHaveBeenCalledWith({
       url: '/api/admin/projects/12/access-logs',
       method: 'GET',
-      params: { page: 1, pageSize: 10 },
+      params: {
+        slug: 'jdyd',
+        publicKey: 'public-key',
+        requestDomain: 'example.com',
+        ip: '127.0.0.1',
+        referer: '/checkout',
+        userAgent: 'Chrome',
+        message: '宽限期',
+        effectiveStatus: 'grace',
+        allowed: 'false',
+        createdAtFrom: '2026-05-25T10:30:00+08:00',
+        createdAtTo: '2026-05-25T11:30:00+08:00',
+        page: 1,
+        pageSize: 10,
+      },
     })
   })
 
   it('calls global access and action log endpoints with filters', async () => {
-    await getAccessLogs({ slug: 'jdyd', effectiveStatus: 'expired', allowed: false, page: 3, pageSize: 20 })
+    await getAccessLogs({
+      projectId: ' 12 ',
+      slug: 'jdyd',
+      publicKey: '',
+      requestDomain: ' example.com ',
+      ip: '127.0.0.1',
+      origin: 'https://example.com',
+      referer: '',
+      userAgent: 'Mozilla',
+      message: '到期',
+      effectiveStatus: 'expired',
+      allowed: true,
+      createdAtFrom: '2026-05-25T10:30:00+08:00',
+      createdAtTo: '2026-05-25T11:30:00+08:00',
+      page: 3,
+      pageSize: 20,
+    })
     expect(requestMock).toHaveBeenLastCalledWith({
       url: '/api/admin/access-logs',
       method: 'GET',
-      params: { slug: 'jdyd', effectiveStatus: 'expired', allowed: false, page: 3, pageSize: 20 },
+      params: {
+        projectId: '12',
+        slug: 'jdyd',
+        requestDomain: 'example.com',
+        ip: '127.0.0.1',
+        origin: 'https://example.com',
+        userAgent: 'Mozilla',
+        message: '到期',
+        effectiveStatus: 'expired',
+        allowed: 'true',
+        createdAtFrom: '2026-05-25T10:30:00+08:00',
+        createdAtTo: '2026-05-25T11:30:00+08:00',
+        page: 3,
+        pageSize: 20,
+      },
     })
 
     await getActionLogs({ action: 'create_project', targetType: 'project', targetId: 12, page: 1, pageSize: 20 })

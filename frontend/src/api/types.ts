@@ -86,13 +86,27 @@ export interface AccessLog {
   createdAt: string
 }
 
+export type AccessLogAllowedParam = boolean | 'true' | 'false'
+
 export interface AccessLogParams {
+  projectId?: number | string
   slug?: string
+  publicKey?: string
+  requestDomain?: string
+  ip?: string
+  origin?: string
+  referer?: string
+  userAgent?: string
+  message?: string
   effectiveStatus?: ProjectStatus
-  allowed?: boolean
+  allowed?: AccessLogAllowedParam
+  createdAtFrom?: string
+  createdAtTo?: string
   page?: number
   pageSize?: number
 }
+
+export type ProjectAccessLogParams = Omit<AccessLogParams, 'projectId'>
 
 export interface AdminActionLog {
   id: number

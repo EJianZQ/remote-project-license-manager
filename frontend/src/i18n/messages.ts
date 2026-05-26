@@ -183,6 +183,7 @@ export const messages = {
       accessLoadFailed: '访问日志加载失败',
       actionLoadFailed: '操作日志加载失败',
       operationDetail: '操作详情',
+      allowedAll: '允许和拒绝',
     },
     access: {
       modalTitle: '商业前端接入信息',
@@ -410,6 +411,7 @@ export const messages = {
       accessLoadFailed: '存取紀錄載入失敗',
       actionLoadFailed: '操作紀錄載入失敗',
       operationDetail: '操作詳細資料',
+      allowedAll: '允許和拒絕',
     },
     access: {
       modalTitle: '商業前端串接資訊',
@@ -637,6 +639,7 @@ export const messages = {
       accessLoadFailed: 'Failed to load access logs',
       actionLoadFailed: 'Failed to load action logs',
       operationDetail: 'Operation details',
+      allowedAll: 'Allowed and denied',
     },
     access: {
       modalTitle: 'Commercial frontend integration info',
